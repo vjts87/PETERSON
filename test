@@ -1,0 +1,84 @@
+// ID šablóny dokumentu
+const TEMPLATE_ID = "1IG824pDkEddGBSrZjR56x2VF-LaMyV0FAho7-d_-fKY";
+
+function generateSelectedDocument() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var data = sheet.getDataRange().getValues(); // Celé dáta
+
+  var headers = data[0]; // Hlavičky
+  var selectedRow = null;
+  
+  // Hľadáme riadok, kde je v stĺpci B (index 1) hodnota TRUE
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][1] === true) {
+      selectedRow = i;
+      break;
+    }
+  }
+
+  if (selectedRow === null) {
+    SpreadsheetApp.getUi().alert('Nevybral si žiadny riadok pomocou checkboxu!');
+    return;
+  }
+
+  var rowData = data[selectedRow];
+  
+  // Skopíruj šablónu
+  var newDoc = DriveApp.getFileById(TEMPLATE_ID).makeCopy("Peterson test " + rowData[2]);
+  var doc = DocumentApp.openById(newDoc.getId());
+  var body = doc.getBody();
+
+  // Prejdi všetky stĺpce od C (index 2) doprava
+  for (var j = 2; j < headers.length; j++) {
+    var headerName = headers[j];
+    var placeholder = "{{" + headerName + "}}"; 
+    var value = rowData[j] || "";
+
+    if (headerName.toLowerCase().includes("obrazok") && value.toString().startsWith("http")) {
+      // Ak ide o obrázok
+      var found = body.findText(placeholder);
+      if (found) {
+        try {
+          Logger.log("Začínam sťahovať obrázok z URL: " + value); // Logovanie URL obrázka
+          var imageBlob = UrlFetchApp.fetch(value).getBlob();
+          Logger.log("Obrázok stiahnutý."); // Potvrdenie stiahnutia obrázka
+          
+          // Pridaj časovač pred vložením obrázka
+          Utilities.sleep(2000); // Čaká 2 sekundy
+
+          var element = found.getElement();
+          var start = found.getStartOffset();
+          var end = found.getEndOffset();
+          
+          // Odstráň text
+          element.asText().deleteText(start, end);
+          
+          // Vlož obrázok
+          var parent = element.getParent();
+          parent.insertInlineImage(parent.getChildIndex(element), imageBlob);
+        } catch (e) {
+          Logger.log('Chyba pri vkladaní obrázka: ' + e); // Logovanie chyby
+          body.replaceText(placeholder, "[obrázok sa nepodarilo načítať]");
+        }
+      }
+    } else {
+      // Bežné nahradenie textu
+      body.replaceText(placeholder, value.toString());
+    }
+  }
+
+  doc.saveAndClose();
+
+  // Otvor náhľad dokumentu v bočnom paneli
+  var html = HtmlService.createHtmlOutput(
+    '<iframe src="https://docs.google.com/document/d/' + newDoc.getId() + '/preview" width="150%" height="600"></iframe>'
+  ).setTitle('Náhľad dokumentu');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Dokumenty')
+    .addItem('Vyplniť a ukázať náhľad', 'generateSelectedDocument')
+    .addToUi();
+}
